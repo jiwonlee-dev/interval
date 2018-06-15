@@ -97,7 +97,7 @@ void param_store(param* p){
 void param_load(param* p){
 	int i;
 	FILE* fp = fopen("publickey.key", "r");
-	if(!fp) print_help();
+	if(!fp){ printf("Cannot find public key. Initial setup is required.\n"); exit(1); }
 
 	file_to_element(&(p->g), fp);
 	file_to_element(&(p->g1), fp);
@@ -150,7 +150,7 @@ void DecKey_store(DecKey* dk, unsigned char* filename){
 void DecKey_load(DecKey* dk, unsigned char* filename){
 	int i, j;
 	FILE* fp = fopen(filename, "r");
-	if(!fp) print_help();
+	if(!fp){ printf("Cannot find decryption key. Keygen is required.\n"); exit(1); }
 
 	file_to_element(dk->SK_right[0], fp);
 	file_to_element(dk->SK_right[1], fp);
@@ -204,7 +204,7 @@ void Hdr_store(Hdr* hdr, unsigned char* filename){
 void Hdr_load(Hdr* hdr, unsigned char* filename){
 	int i;
 	FILE* fp = fopen(filename, "r");
-	if(!fp) print_help();
+	if(!fp){ printf("Cannot find header(ciphertext). Encryption is required.\n"); exit(1); }
 
 	file_to_element(&(hdr->CT), fp);
 	file_to_element(&(hdr->C_right[0]), fp);
@@ -424,6 +424,7 @@ Hdr* encrypt(unsigned char* msg, int left, int right, param* p, pairing_t pairin
 
 	//symmetric encryption: Enc(M, K_j)
 	element_from_bytes(M, msg);
+	//Instead of symmetric encryption, we just multiply K_sym
 	element_mul(hdr->CT, K_sym, M);
 
 	element_clear(gamma);
@@ -518,7 +519,7 @@ element_t* right_keyder(char* w_id, char* upbound, SK_j** SK_node, param* p, pai
 	return SK_upbound; 
 }
 
-unsigned char* decrypt(Hdr* hdr, int left, int right, int id, DecKey* dk, param* p, pairing_t pairing){
+unsigned char* decrypt(Hdr* hdr, DecKey* dk, int left, int right, int id, param* p, pairing_t pairing){
 	int i, j;
 	char* w_id;
 	char* left_bitstring;
@@ -576,15 +577,14 @@ unsigned char* decrypt(Hdr* hdr, int left, int right, int id, DecKey* dk, param*
 void print_help(){
 	printf("Usage: ./interval option\n");
 	printf("option:\n");
-	printf("setup - s msk_out_filename\n");
-	printf("	ex: ./interval s sample_msk.key\n");
-	printf("keygen - k id msk_in_filename dk_out_filename\n");
-	printf("	ex: ./interval k 3 sample_msk.key sample_deckey.key\n");
-	printf("encrypt - e msg_filename interval_left interval_right hdr_out_filename\n");
-	printf("	ex: ./interval e sample_msg.dat 1 5 sample_hdr.dat\n");
-	printf("decrypt - d hdr_in_filename dk_in_filename id interval_left interval_right msg_out_filename\n");
-	printf("	ex: ./interval d sample_hdr.dat sample_deckey.key 3 1 5 sample_msg.dat\n");
-	printf("Note: Setup is initially required for other phases.\n");
+	printf("setup - setup msk_out_filename\n");
+	printf("	ex: ./interval setup sample_msk.key\n");
+	printf("keygen - keygen id msk_in_filename dk_out_filename\n");
+	printf("	ex: ./interval keygen 3 sample_msk.key sample_deckey.key\n");
+	printf("encrypt - encrypt msg_filename interval_left interval_right hdr_out_filename\n");
+	printf("	ex: ./interval encrypt sample_msg.dat 1 5 sample_hdr.dat\n");
+	printf("decrypt - decrypt hdr_in_filename dk_in_filename interval_left interval_right id msg_out_filename\n");
+	printf("	ex: ./interval decrypt sample_hdr.dat sample_deckey.key 1 5 3 sample_msg.dat\n");
 	exit(1);
 }
 
@@ -608,20 +608,18 @@ int main(int argc, char* argv[]){
 	unsigned char M[MSG_SIZE];
 	unsigned char* msg_result;
 
-	if(argc < 2) print_help();
-	if(argv[1][0] == 's') if(argc != 3) print_help();
-	if(argv[1][0] == 'k') if(argc != 5) print_help();
-	if(argv[1][0] == 'e') if(argc != 6) print_help();
-	if(argv[1][0] == 'd') if(argc != 8) print_help();
-	
 	fp = fopen("param", "r");
+	if(!fp){ printf("No PBC param file.\n"); exit(1); }
 	pbc_size = fread(pbc_param, 1, BUF_SIZE, fp);
-	if(!pbc_size) print_help();
+	if(!pbc_size){ printf("Inappropriate PBC param file.\n"); exit(1); }
 	pairing_init_set_buf(pairing, pbc_param, pbc_size);
 	fclose(fp);
 
-	//SETUP: s msk_out
-	if(argv[1][0] == 's'){
+	if(argc < 2) print_help();
+
+	//SETUP: setup msk_out
+	if(!strcmp(argv[1], "setup")){
+		if(argc != 3) print_help();
 		timestamp = clock();
 		
 		p = init_param(pairing);
@@ -636,7 +634,8 @@ int main(int argc, char* argv[]){
 	}
 
 	//KEYGEN: k id msk_in dk_out
-	if(argv[1][0] == 'k'){
+	else if(!strcmp(argv[1], "keygen")){
+		if(argc != 5) print_help();
 		timestamp = clock();
 
 		p = init_param(pairing);
@@ -647,14 +646,15 @@ int main(int argc, char* argv[]){
 		file_to_element(&msk, fp);
 		fclose(fp);
 
-		dk = pvkgen(int_to_bitstring(argv[2]), msk, p, pairing);
+		dk = pvkgen(atoi(argv[2]), msk, p, pairing);
 		DecKey_store(dk, argv[4]);
-
-		printf("KeyGen for id %d completed in %f sec.\n", argv[2], (float)(clock() - timestamp) / CLOCKS_PER_SEC);
+		
+		printf("KeyGen for id %d completed in %f sec.\n", atoi(argv[2]), (float)(clock() - timestamp) / CLOCKS_PER_SEC);
 	}
 
 	//ENCRYPT: e msg left right hdr_out
-	if(argv[1][0] == 'e'){
+	else if(!strcmp(argv[1], "encrypt")){
+		if(argc != 6) print_help();
 		timestamp = clock();
 
 		p = init_param(pairing);
@@ -662,6 +662,7 @@ int main(int argc, char* argv[]){
 	
 		fp = fopen(argv[2], "r");
 		fread(M, 1, BUF_SIZE, fp);
+		fclose(fp);		
 
 		hdr = encrypt(M, atoi(argv[3]), atoi(argv[4]), p, pairing);
 		Hdr_store(hdr, argv[5]);
@@ -669,10 +670,13 @@ int main(int argc, char* argv[]){
 		printf("Encryption for interval [%d ~ %d] completed in %f sec.\n", atoi(argv[3]), atoi(argv[4]), (float)(clock() - timestamp) / CLOCKS_PER_SEC);
 	}
 
-	//DECRYPT: d hdr_in dk_in id left right msg_out
-	if(argv[1][0] == 'd'){
+	//DECRYPT: d hdr_in dk_in left right id msg_out
+	else if(!strcmp(argv[1], "decrypt")){
+		if(argc != 8) print_help();
+		if(atoi(argv[6]) < atoi(argv[4]) || atoi(argv[6]) > atoi(argv[5])){ printf("ID not in range.\n"); exit(1); }
+
 		timestamp = clock();
-		
+
 		p = init_param(pairing);
 		param_load(p);
 
@@ -682,13 +686,15 @@ int main(int argc, char* argv[]){
 		dk = init_DecKey(pairing);
 		DecKey_load(dk, argv[3]);
 
-		msg_result = decrypt(hdr, atoi(argv[5]), atoi(argv[6]), atoi(argv[4]), dk, p, pairing);
+		msg_result = decrypt(hdr, dk, atoi(argv[4]), atoi(argv[5]), atoi(argv[6]), p, pairing);
 		fp = fopen(argv[7], "w");
-		fprintf(fp, "%s\n", msg_result);		
+		fprintf(fp, "%s", msg_result);		
 		fclose(fp);
 
-		printf("Decryption for interval [%d ~ %d] completed in %f sec.\n", atoi(argv[5]), atoi(argv[6]), (float)(clock() - timestamp) / CLOCKS_PER_SEC);
+		printf("Decryption for interval [%d ~ %d] completed in %f sec.\n", atoi(argv[4]), atoi(argv[5]), (float)(clock() - timestamp) / CLOCKS_PER_SEC);
 	}
+
+	else print_help();
 
 	return 0;
 }
