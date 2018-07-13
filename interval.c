@@ -7,7 +7,6 @@
 #define d_LEVEL 4
 #define MSG_SIZE 4096
 #define BUF_SIZE 1024
-int ELEMENT_SIZE;
 
 typedef struct param{
 	element_t g;
@@ -46,16 +45,20 @@ typedef struct IntervalSet{
 }IntervalSet;
 
 void element_to_file(element_t* e, FILE* fp){
+	int size;
 	unsigned char buf[BUF_SIZE];
 
-	element_to_bytes(buf, *e);
-	fwrite(buf, ELEMENT_SIZE, 1, fp);
+	size = element_to_bytes(buf, *e);
+	fwrite(&size, sizeof(int), 1, fp);
+	fwrite(buf, size, 1, fp);
 }
 
 void file_to_element(element_t* e, FILE* fp){
+	int size;
 	unsigned char buf[BUF_SIZE];
 
-	fread(buf, ELEMENT_SIZE, 1, fp);
+	fread(&size, sizeof(int), 1, fp);
+	fread(buf, size, 1, fp);
 	element_from_bytes(*e, buf);
 }
 
@@ -415,15 +418,17 @@ element_t* left_keyder(char* w_id, char* lowbound, SK_j** SK_node, param* p, pai
 	element_t temp;
 	element_t* SK_lowbound = (element_t*)malloc(sizeof(element_t) * 2);
 
-	//find existing node SK which belongs to D_w,L
-	for(j = 0; j < d_LEVEL; j++) if(w_id[j] != lowbound[j]) break;
-	if(j == d_LEVEL) j--;
-
 	element_init_Zr(t, pairing);
 	element_init_G1(fl, pairing);
 	element_init_G1(temp, pairing);
 	element_init_G1(SK_lowbound[0], pairing);
 	element_init_G1(SK_lowbound[1], pairing);
+
+	//find existing node SK which belongs to D_w,L
+	for(j = 0; j < d_LEVEL; j++) if(w_id[j] != lowbound[j]) break;
+	//if same, no need for delegation
+	if(j == d_LEVEL) return SK_lowbound;
+
 	element_set(SK_lowbound[0], SK_node[j]->a0);
 	element_set(SK_lowbound[1], SK_node[j]->a1);
 
@@ -455,18 +460,20 @@ element_t* right_keyder(char* w_id, char* upbound, SK_j** SK_node, param* p, pai
 	element_t temp;
 	element_t* SK_upbound = (element_t*)malloc(sizeof(element_t) * 2);
 
-	//find existing node SK which belongs to D_w,R
-	for(j = 0; j < d_LEVEL; j++) if(w_id[j] != upbound[j]) break;
-	if(j == d_LEVEL) j--;
-
 	element_init_Zr(t, pairing);
 	element_init_G1(fr, pairing);
 	element_init_G1(temp, pairing);
 	element_init_G1(SK_upbound[0], pairing);
 	element_init_G1(SK_upbound[1], pairing);
+
+	//find existing node SK which belongs to D_w,R
+	for(j = 0; j < d_LEVEL; j++) if(w_id[j] != upbound[j]) break;
+	//if same, no need for delegation
+	if(j == d_LEVEL) return SK_upbound;
+
 	element_set(SK_upbound[0], SK_node[j]->a0);
 	element_set(SK_upbound[1], SK_node[j]->a1);
-
+	
 	//key delegation:**b[i]
 	element_random(t);
 	for(i = j; i < d_LEVEL; i++){
@@ -514,14 +521,23 @@ unsigned char* decrypt(Hdr* hdr, DecKey* dk, int left, int right, int id, param*
 	element_init_GT(tempR, pairing);
 
 	rk = right_keyder(w_id, right_bitstring, dk->SK_right_j, p, pairing);
+	if(id == right){
+		element_set(rk[0], dk->SK_right[0]);
+		element_set(rk[1], dk->SK_right[1]);
+	}
+
 	lk = left_keyder(w_id, left_bitstring, dk->SK_left_j, p, pairing);
-	
-	//e(g^gamma, g2^(alpha_w) * FR^r'' / e(g^r'', FR^gamma_j)
+	if(id == left){
+		element_set(lk[0], dk->SK_left[0]);
+		element_set(lk[1], dk->SK_left[1]);
+	}
+
+	//e(g^gamma, g2^(alpha_w) * FR^r'') / e(g^r'', FR^gamma_j)
 	pairing_apply(temp1, hdr->C_right[0], rk[0], pairing);
 	pairing_apply(temp2, hdr->C_right[1], rk[1], pairing);
 	element_div(tempR, temp1, temp2);
 
-	//e(g^gamma, g2^(alpha-alpha_w) * FL^r' / e(g^r', FL^gamma_j)
+	//e(g^gamma, g2^(alpha-alpha_w) * FL^r') / e(g^r', FL^gamma_j)
 	pairing_apply(temp1, hdr->C_left[0], lk[0], pairing);
 	pairing_apply(temp2, hdr->C_left[1], lk[1], pairing);
 	element_div(tempL, temp1, temp2);
@@ -549,15 +565,15 @@ void print_help(){
 	printf("setup - setup msk_out_filename\n");
 	printf("	ex: ./interval setup sample_msk.key\n");
 	printf("keygen - keygen id msk_in_filename dk_out_filename\n");
-	printf("	ex: ./interval keygen 3 sample_msk.key sample_deckey.key\n");
+	printf("	ex: ./interval keygen 3 sample_msk.key sample_dk.key\n");
 	printf("encrypt - encrypt msg_filename interval_left interval_right hdr_out_filename\n");
-	printf("	ex: ./interval encrypt sample_msg.dat 1 5 sample_hdr.dat\n");
+	printf("	ex: ./interval encrypt sample_msg.in 1 5 sample_hdr.dat\n");
 	printf("decrypt - decrypt hdr_in_filename dk_in_filename interval_left interval_right id msg_out_filename\n");
-	printf("	ex: ./interval decrypt sample_hdr.dat sample_deckey.key 1 5 3 sample_msg.dat\n");
+	printf("	ex: ./interval decrypt sample_hdr.dat sample_dk.key 1 5 3 sample_msg.out\n");
 	printf("broadcast - broadcast msg_filename set_filename hdrlist_out_filename\n");
-	printf("	ex: ./interval broadcast sample_msg.dat sample_sets.dat sample_hdrlist.dat\n");
+	printf("	ex: ./interval broadcast sample_msg.in sample_sets.in sample_hdrlist.dat\n");
 	printf("receive - receive hdrlist_in dk_in_filename id msg_out_filename\n");
-	printf("	ex: ./interval receive sample_hdrlist.dat sample_deckey.key 3 sample_msg.dat\n");
+	printf("	ex: ./interval receive sample_hdrlist.dat sample_dk.key 3 sample_msg.out\n");
 	exit(1);
 }
 
@@ -586,9 +602,6 @@ int main(int argc, char* argv[]){
 	pbc_size = fread(pbc_param, 1, BUF_SIZE, fp);
 	if(!pbc_size){ printf("Inappropriate PBC param file.\n"); exit(1); }
 	pairing_init_set_buf(pairing, pbc_param, pbc_size);
-	//determine element size... can use any element
-	element_init_G1(msk, pairing);
-	ELEMENT_SIZE = element_length_in_bytes(msk);
 	fclose(fp);
 
 	if(argc < 2) print_help();
@@ -749,6 +762,7 @@ int main(int argc, char* argv[]){
 		S = (IntervalSet*)malloc(sizeof(IntervalSet) * k_sets);
 		for(i = 0; i < k_sets; i++){
 			fscanf(fp, "%d-%d\n", &(S[i].left), &(S[i].right));
+			S[i].hdr = init_Hdr(pairing);
 			Hdr_load(S[i].hdr, fp);
 		}
 		fclose(fp);
@@ -769,7 +783,7 @@ int main(int argc, char* argv[]){
 		//if set doesn't exist
 		if(i >= k_sets){ printf("Given ID %d is not included in the available interval sets.", id); exit(1); }
 		
-		fp = fopen(argv[4], "w");
+		fp = fopen(argv[5], "w");
 		fprintf(fp, "%s", msg_result);
 		fclose(fp);
 	}
