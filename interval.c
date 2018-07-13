@@ -7,6 +7,7 @@
 #define d_LEVEL 4
 #define MSG_SIZE 4096
 #define BUF_SIZE 1024
+int ELEMENT_SIZE;
 
 typedef struct param{
 	element_t g;
@@ -41,7 +42,22 @@ typedef struct Hdr{
 typedef struct IntervalSet{
 	int left;
 	int right;
+	Hdr* hdr;
 }IntervalSet;
+
+void element_to_file(element_t* e, FILE* fp){
+	unsigned char buf[BUF_SIZE];
+
+	element_to_bytes(buf, *e);
+	fwrite(buf, ELEMENT_SIZE, 1, fp);
+}
+
+void file_to_element(element_t* e, FILE* fp){
+	unsigned char buf[BUF_SIZE];
+
+	fread(buf, ELEMENT_SIZE, 1, fp);
+	element_from_bytes(*e, buf);
+}
 
 param* init_param(pairing_t pairing){
 	int i;
@@ -59,45 +75,23 @@ param* init_param(pairing_t pairing){
 	return p;
 }
 
-void element_to_file(element_t e, FILE* fp){
-	int size;
-	unsigned char buf[BUF_SIZE];
-
-	size = element_to_bytes(buf, e);
-	fprintf(fp, "%d\n", size);
-	fwrite(buf, size, 1, fp);
-}
-
-void file_to_element(element_t* e, FILE* fp){
-	int size;
-	unsigned char buf[BUF_SIZE];
-
-	fscanf(fp, "%d\n", &size);
-	fread(buf, size, 1, fp);
-	element_from_bytes(*e, buf);
-}
-
-void param_store(param* p){
+void param_store(param* p, FILE* fp){
 	int i;
-	FILE* fp = fopen("publickey.key", "w");
 
-	element_to_file(p->g, fp);
-	element_to_file(p->g1, fp);
-	element_to_file(p->g2, fp);
-	element_to_file(p->g3_left, fp);
-	element_to_file(p->g3_right, fp);
+	element_to_file(&(p->g), fp);
+	element_to_file(&(p->g1), fp);
+	element_to_file(&(p->g2), fp);
+	element_to_file(&(p->g3_left), fp);
+	element_to_file(&(p->g3_right), fp);
 
 	for(i = 0; i < d_LEVEL; i++){
-		element_to_file(p->h_left[i], fp);
-		element_to_file(p->h_right[i], fp);
+		element_to_file(&(p->h_left[i]), fp);
+		element_to_file(&(p->h_right[i]), fp);
 	}
-	fclose(fp);
 }
 
-void param_load(param* p){
+void param_load(param* p, FILE* fp){
 	int i;
-	FILE* fp = fopen("publickey.key", "r");
-	if(!fp){ printf("Cannot find public key. Initial setup is required.\n"); exit(1); }
 
 	file_to_element(&(p->g), fp);
 	file_to_element(&(p->g1), fp);
@@ -109,7 +103,6 @@ void param_load(param* p){
 		file_to_element(&(p->h_left[i]), fp);
 		file_to_element(&(p->h_right[i]), fp);		
 	}
-	fclose(fp);
 }
 
 SK_j* init_SK_j(pairing_t pairing){
@@ -124,33 +117,27 @@ SK_j* init_SK_j(pairing_t pairing){
 }
 
 
-void DecKey_store(DecKey* dk, unsigned char* filename){
+void DecKey_store(DecKey* dk, FILE* fp){
 	int i, j;
-	FILE* fp = fopen(filename, "w");
 
-	element_to_file(dk->SK_right[0], fp);
-	element_to_file(dk->SK_right[1], fp);
-	element_to_file(dk->SK_left[0], fp);
-	element_to_file(dk->SK_left[1], fp);
+	element_to_file(&(dk->SK_right[0]), fp);
+	element_to_file(&(dk->SK_right[1]), fp);
+	element_to_file(&(dk->SK_left[0]), fp);
+	element_to_file(&(dk->SK_left[1]), fp);
 	
 	for(i = 0; i < d_LEVEL; i++){
-		element_to_file(dk->SK_right_j[i]->a0, fp);
-		element_to_file(dk->SK_right_j[i]->a1, fp);
-		for(j = 0; j < d_LEVEL; j++) 
-			element_to_file(dk->SK_right_j[i]->b[j], fp);
+		element_to_file(&(dk->SK_right_j[i]->a0), fp);
+		element_to_file(&(dk->SK_right_j[i]->a1), fp);
+		for(j = 0; j < d_LEVEL; j++) element_to_file(&(dk->SK_right_j[i]->b[j]), fp);
 
-		element_to_file(dk->SK_left_j[i]->a0, fp);
-		element_to_file(dk->SK_left_j[i]->a1, fp);
-		for(j = 0; j < d_LEVEL; j++) 
-			element_to_file(dk->SK_left_j[i]->b[j], fp);
+		element_to_file(&(dk->SK_left_j[i]->a0), fp);
+		element_to_file(&(dk->SK_left_j[i]->a1), fp);
+		for(j = 0; j < d_LEVEL; j++) element_to_file(&(dk->SK_left_j[i]->b[j]), fp);
 	}
-	fclose(fp);
 }
 
-void DecKey_load(DecKey* dk, unsigned char* filename){
+void DecKey_load(DecKey* dk, FILE* fp){
 	int i, j;
-	FILE* fp = fopen(filename, "r");
-	if(!fp){ printf("Cannot find decryption key. Keygen is required.\n"); exit(1); }
 
 	file_to_element(dk->SK_right[0], fp);
 	file_to_element(dk->SK_right[1], fp);
@@ -160,15 +147,12 @@ void DecKey_load(DecKey* dk, unsigned char* filename){
 	for(i = 0; i < d_LEVEL; i++){
 		file_to_element(dk->SK_right_j[i]->a0, fp);
 		file_to_element(dk->SK_right_j[i]->a1, fp);
-		for(j = 0; j < d_LEVEL; j++) 
-			file_to_element(dk->SK_right_j[i]->b[j], fp);
+		for(j = 0; j < d_LEVEL; j++) file_to_element(dk->SK_right_j[i]->b[j], fp);
 
 		file_to_element(dk->SK_left_j[i]->a0, fp);
 		file_to_element(dk->SK_left_j[i]->a1, fp);
-		for(j = 0; j < d_LEVEL; j++) 
-			file_to_element(dk->SK_left_j[i]->b[j], fp);
+		for(j = 0; j < d_LEVEL; j++) file_to_element(dk->SK_left_j[i]->b[j], fp);
 	}
-	fclose(fp);
 }
 
 DecKey* init_DecKey(pairing_t pairing){
@@ -188,31 +172,24 @@ DecKey* init_DecKey(pairing_t pairing){
 	return dk;
 }
 
-void Hdr_store(Hdr* hdr, unsigned char* filename){
+void Hdr_store(Hdr* hdr, FILE* fp){
 	int i;
-	FILE* fp = fopen(filename, "w");
 
-	element_to_file(hdr->CT, fp);
-	element_to_file(hdr->C_right[0], fp);
-	element_to_file(hdr->C_right[1], fp);
-	element_to_file(hdr->C_left[0], fp);
-	element_to_file(hdr->C_left[1], fp);
-	
-	fclose(fp);
+	element_to_file(&(hdr->CT), fp);
+	element_to_file(&(hdr->C_right[0]), fp);
+	element_to_file(&(hdr->C_right[1]), fp);
+	element_to_file(&(hdr->C_left[0]), fp);
+	element_to_file(&(hdr->C_left[1]), fp);
 }
 
-void Hdr_load(Hdr* hdr, unsigned char* filename){
+void Hdr_load(Hdr* hdr, FILE* fp){
 	int i;
-	FILE* fp = fopen(filename, "r");
-	if(!fp){ printf("Cannot find header(ciphertext). Encryption is required.\n"); exit(1); }
 
 	file_to_element(&(hdr->CT), fp);
 	file_to_element(&(hdr->C_right[0]), fp);
 	file_to_element(&(hdr->C_right[1]), fp);
 	file_to_element(&(hdr->C_left[0]), fp);
 	file_to_element(&(hdr->C_left[1]), fp);
-	
-	fclose(fp);
 }
 
 Hdr* init_Hdr(pairing_t pairing){
@@ -240,8 +217,7 @@ char* int_to_bitstring(int val){
 char* left_sibling(char* w_id, int j){
 	int i;
 	char* sibling = (char*)malloc(sizeof(char) * (j + 1));
-	for(int i = 0; i < j; i++)
-		sibling[i] = w_id[i];
+	for(int i = 0; i < j; i++) sibling[i] = w_id[i];
 	sibling[j] = '0';
 	sibling[j + 1] = 0x00;
 	return sibling;
@@ -250,8 +226,7 @@ char* left_sibling(char* w_id, int j){
 char* right_sibling(char* w_id, int j){
 	int i;
 	char* sibling = (char*)malloc(sizeof(char) * (j + 1));
-	for(int i = 0; i < j; i++)
-		sibling[i] = w_id[i];
+	for(int i = 0; i < j; i++) sibling[i] = w_id[i];
 	sibling[j] = '1';
 	sibling[j + 1] = 0x00;
 	return sibling;
@@ -262,8 +237,7 @@ void FL(element_t* result, char* v_id, int length, param* p, pairing_t pairing){
 	//g3L * prod(1~l)hL[i]^v[i]
 	element_set(*result, p->g3_left);
 	for(i = 0; i < length; i++){
-		if(v_id[i] == '1')
-			element_mul(*result, *result, p->h_left[i]);
+		if(v_id[i] == '1') element_mul(*result, *result, p->h_left[i]);
 	}
 }
 
@@ -272,8 +246,7 @@ void FR(element_t* result, char* v_id, int length, param* p, pairing_t pairing){
 	//g3R * prod(1~l)hR[i]^v[i]
 	element_set(*result, p->g3_right);
 	for(i = 0; i < length; i++){
-		if(v_id[i] == '1')
-			element_mul(*result, *result, p->h_right[i]);
+		if(v_id[i] == '1') element_mul(*result, *result, p->h_right[i]);
 	}
 }
 
@@ -443,8 +416,7 @@ element_t* left_keyder(char* w_id, char* lowbound, SK_j** SK_node, param* p, pai
 	element_t* SK_lowbound = (element_t*)malloc(sizeof(element_t) * 2);
 
 	//find existing node SK which belongs to D_w,L
-	for(j = 0; j < d_LEVEL; j++)
-		if(w_id[j] != lowbound[j]) break;
+	for(j = 0; j < d_LEVEL; j++) if(w_id[j] != lowbound[j]) break;
 	if(j == d_LEVEL) j--;
 
 	element_init_Zr(t, pairing);
@@ -458,8 +430,7 @@ element_t* left_keyder(char* w_id, char* lowbound, SK_j** SK_node, param* p, pai
 	//key delegation:**b[i]
 	element_random(t);
 	for(i = j; i < d_LEVEL; i++){
-		if(lowbound[i] == '1')
-			element_mul(SK_lowbound[0], SK_lowbound[0], SK_node[j]->b[i]);
+		if(lowbound[i] == '1') element_mul(SK_lowbound[0], SK_lowbound[0], SK_node[j]->b[i]);
 	}
 	
 	//SK_left->a0 = a0 * b_(i+1)^bit * FL^t
@@ -485,8 +456,7 @@ element_t* right_keyder(char* w_id, char* upbound, SK_j** SK_node, param* p, pai
 	element_t* SK_upbound = (element_t*)malloc(sizeof(element_t) * 2);
 
 	//find existing node SK which belongs to D_w,R
-	for(j = 0; j < d_LEVEL; j++)
-		if(w_id[j] != upbound[j]) break;
+	for(j = 0; j < d_LEVEL; j++) if(w_id[j] != upbound[j]) break;
 	if(j == d_LEVEL) j--;
 
 	element_init_Zr(t, pairing);
@@ -500,8 +470,7 @@ element_t* right_keyder(char* w_id, char* upbound, SK_j** SK_node, param* p, pai
 	//key delegation:**b[i]
 	element_random(t);
 	for(i = j; i < d_LEVEL; i++){
-		if(upbound[i] == '1')
-			element_mul(SK_upbound[0], SK_upbound[0], SK_node[j]->b[i]);
+		if(upbound[i] == '1') element_mul(SK_upbound[0], SK_upbound[0], SK_node[j]->b[i]);
 	}
 	
 	//SK_right->a0 = a0 * b_(i+1)^bit * FR^t
@@ -585,6 +554,10 @@ void print_help(){
 	printf("	ex: ./interval encrypt sample_msg.dat 1 5 sample_hdr.dat\n");
 	printf("decrypt - decrypt hdr_in_filename dk_in_filename interval_left interval_right id msg_out_filename\n");
 	printf("	ex: ./interval decrypt sample_hdr.dat sample_deckey.key 1 5 3 sample_msg.dat\n");
+	printf("broadcast - broadcast msg_filename set_filename hdrlist_out_filename\n");
+	printf("	ex: ./interval broadcast sample_msg.dat sample_sets.dat sample_hdrlist.dat\n");
+	printf("receive - receive hdrlist_in dk_in_filename id msg_out_filename\n");
+	printf("	ex: ./interval receive sample_hdrlist.dat sample_deckey.key 3 sample_msg.dat\n");
 	exit(1);
 }
 
@@ -602,7 +575,7 @@ int main(int argc, char* argv[]){
 	param* p;
 
 	IntervalSet* S;
-	int k_sets;
+	int k_sets, id;
 	FILE* fp;
 
 	unsigned char M[MSG_SIZE];
@@ -613,6 +586,9 @@ int main(int argc, char* argv[]){
 	pbc_size = fread(pbc_param, 1, BUF_SIZE, fp);
 	if(!pbc_size){ printf("Inappropriate PBC param file.\n"); exit(1); }
 	pairing_init_set_buf(pairing, pbc_param, pbc_size);
+	//determine element size... can use any element
+	element_init_G1(msk, pairing);
+	ELEMENT_SIZE = element_length_in_bytes(msk);
 	fclose(fp);
 
 	if(argc < 2) print_help();
@@ -625,66 +601,90 @@ int main(int argc, char* argv[]){
 		p = init_param(pairing);
 		element_init_G1(msk, pairing);
 		setup(p, pairing, &msk);
-		param_store(p);
+	
+		fp = fopen("publickey.key", "w");	
+		param_store(p, fp);
+		fclose(fp);
+	
 		fp = fopen(argv[2], "w");
-		element_to_file(msk, fp);
+		element_to_file(&msk, fp);
 		fclose(fp);
 		
 		printf("Setup completed in %f sec.\n", (float)(clock() - timestamp) / CLOCKS_PER_SEC);
 	}
 
-	//KEYGEN: k id msk_in dk_out
+	//KEYGEN: keygen id msk_in dk_out
 	else if(!strcmp(argv[1], "keygen")){
 		if(argc != 5) print_help();
 		timestamp = clock();
 
+		fp = fopen("publickey.key", "r");
+		if(!fp){ printf("Cannot find public key. Initial setup required.\n"); exit(1); }
 		p = init_param(pairing);
-		param_load(p);
+		param_load(p, fp);
+		fclose(fp);
 		
 		element_init_G1(msk, pairing);
 		fp = fopen(argv[3], "r");
+		if(!fp){ printf("Cannot find master key file %s.\n", argv[3]); exit(1); }
 		file_to_element(&msk, fp);
 		fclose(fp);
 
 		dk = pvkgen(atoi(argv[2]), msk, p, pairing);
-		DecKey_store(dk, argv[4]);
+		fp = fopen(argv[4], "w");
+		DecKey_store(dk, fp);
+		fclose(fp);
 		
 		printf("KeyGen for id %d completed in %f sec.\n", atoi(argv[2]), (float)(clock() - timestamp) / CLOCKS_PER_SEC);
 	}
 
-	//ENCRYPT: e msg left right hdr_out
+	//ENCRYPT: encrypt msg left right hdr_out
 	else if(!strcmp(argv[1], "encrypt")){
 		if(argc != 6) print_help();
 		timestamp = clock();
-
+		
+		fp = fopen("publickey.key", "r");
+		if(!fp){ printf("Cannot find public key. Initial setup required.\n"); exit(1); }
 		p = init_param(pairing);
-		param_load(p);
+		param_load(p, fp);
+		fclose(fp);
 	
 		fp = fopen(argv[2], "r");
+		if(!fp){ printf("Cannot find message file %s.\n", argv[2]); exit(1); }
 		fread(M, 1, BUF_SIZE, fp);
 		fclose(fp);		
 
 		hdr = encrypt(M, atoi(argv[3]), atoi(argv[4]), p, pairing);
-		Hdr_store(hdr, argv[5]);
+		fp = fopen(argv[5], "w");
+		Hdr_store(hdr, fp);
+		fclose(fp);
 
 		printf("Encryption for interval [%d ~ %d] completed in %f sec.\n", atoi(argv[3]), atoi(argv[4]), (float)(clock() - timestamp) / CLOCKS_PER_SEC);
 	}
-
-	//DECRYPT: d hdr_in dk_in left right id msg_out
+	
+	//DECRYPT: decrypt hdr_in dk_in left right id msg_out
 	else if(!strcmp(argv[1], "decrypt")){
 		if(argc != 8) print_help();
 		if(atoi(argv[6]) < atoi(argv[4]) || atoi(argv[6]) > atoi(argv[5])){ printf("ID not in range.\n"); exit(1); }
-
 		timestamp = clock();
 
+		fp = fopen("publickey.key", "r");
+		if(!fp){ printf("Cannot find public key. Initial setup required.\n"); exit(1); }
 		p = init_param(pairing);
-		param_load(p);
+		param_load(p, fp);
+		fclose(fp);
 
+		fp = fopen(argv[2], "r");
+		if(!fp){ printf("Cannot find header(ciphertext) %s.\n", argv[2]); exit(1); }
 		hdr = init_Hdr(pairing);
-		Hdr_load(hdr, argv[2]);
+		Hdr_load(hdr, fp);
+		fclose(fp);
 
+		fp = fopen(argv[3], "r");
+		if(!fp){ printf("Cannot find decryption key %s.\n", argv[3]); exit(1); }
 		dk = init_DecKey(pairing);
-		DecKey_load(dk, argv[3]);
+		DecKey_load(dk, fp);
+		fclose(fp);
 
 		msg_result = decrypt(hdr, dk, atoi(argv[4]), atoi(argv[5]), atoi(argv[6]), p, pairing);
 		fp = fopen(argv[7], "w");
@@ -694,23 +694,87 @@ int main(int argc, char* argv[]){
 		printf("Decryption for interval [%d ~ %d] completed in %f sec.\n", atoi(argv[4]), atoi(argv[5]), (float)(clock() - timestamp) / CLOCKS_PER_SEC);
 	}
 
+	//BROADCAST: broadcast msg set_filename hdrlist_out
+	else if(!strcmp(argv[1], "broadcast")){
+		if(argc != 5) print_help();
+		timestamp = clock();
+
+		fp = fopen("publickey.key", "r");
+		if(!fp){ printf("Cannot find public key. Initial setup required.\n"); exit(1); }
+		p = init_param(pairing);
+		param_load(p, fp);
+		fclose(fp);
+
+		fp = fopen(argv[2], "r");
+		if(!fp){ printf("Cannot find message file %s.\n", argv[2]); exit(1); }		
+		fread(M, 1, BUF_SIZE, fp);
+		fclose(fp);
+
+		fp = fopen(argv[3], "r");
+		if(!fp){ printf("Cannot find set file %s.\n", argv[3]); exit(1); }
+		//TODO: set file error control
+		fscanf(fp, "%d sets", &k_sets);
+		S = (IntervalSet*)malloc(sizeof(IntervalSet) * k_sets);
+		for(i = 0; i < k_sets; i++){
+			fscanf(fp, "%d-%d", &(S[i].left), &(S[i].right));
+			S[i].hdr = encrypt(M, S[i].left, S[i].right, p, pairing);
+		}
+		fclose(fp);
+
+		fp = fopen(argv[4], "w");
+		fprintf(fp, "%d sets\n", k_sets);
+		for(i = 0; i < k_sets; i++){
+			fprintf(fp, "%d-%d\n", S[i].left, S[i].right);
+			Hdr_store(S[i].hdr, fp);
+		}
+		fclose(fp);
+
+		printf("Broadcast for sets completed in %f sec.\n", (float)(clock() - timestamp) / CLOCKS_PER_SEC);
+	}
+
+	//RECEIVE: receive hdrlist_in dk_in id msg_out
+	else if(!strcmp(argv[1], "receive")){
+		if(argc != 6) print_help();
+		timestamp = clock();
+
+		fp = fopen("publickey.key", "r");
+		if(!fp){ printf("Cannot find public key. Initial setup required.\n"); exit(1); }
+		p = init_param(pairing);
+		param_load(p, fp);
+		fclose(fp);
+
+		fp = fopen(argv[2], "r");
+		if(!fp){ printf("Cannot find broadcast header list %s.\n", argv[2]); exit(1); }
+		fscanf(fp, "%d sets\n", &k_sets);
+		S = (IntervalSet*)malloc(sizeof(IntervalSet) * k_sets);
+		for(i = 0; i < k_sets; i++){
+			fscanf(fp, "%d-%d\n", &(S[i].left), &(S[i].right));
+			Hdr_load(S[i].hdr, fp);
+		}
+		fclose(fp);
+
+		fp = fopen(argv[3], "r");
+		if(!fp){ printf("Cannot find decryption key %s.\n", argv[3]); exit(1); }
+		dk = init_DecKey(pairing);
+		DecKey_load(dk, fp);
+		fclose(fp);
+
+		id = atoi(argv[4]);
+		for(i = 0; i < k_sets; i++){
+			if(id >= S[i].left && id <= S[i].right){		
+				msg_result = decrypt(S[i].hdr, dk, S[i].left, S[i].right, id, p, pairing);
+				break;
+			}
+		}
+		//if set doesn't exist
+		if(i >= k_sets){ printf("Given ID %d is not included in the available interval sets.", id); exit(1); }
+		
+		fp = fopen(argv[4], "w");
+		fprintf(fp, "%s", msg_result);
+		fclose(fp);
+	}
+
 	else print_help();
 
 	return 0;
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

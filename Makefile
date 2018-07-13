@@ -8,6 +8,9 @@ all: interval
 interval: interval.c
 	gcc $(CFLAGS) -o $@ $^ $(LIBS)
 
+example: example.c
+	gcc $(CFLAGS) -o $@ $^ $(LIBS)
+
 clean: 
 	rm interval
 
